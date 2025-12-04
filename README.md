@@ -103,6 +103,8 @@ python bot.py
 
 !channel → Set the current channel as the notification channel.
 
+!repos → Check every repo that is publicly available on defined profile.
+
 💡 Tip: Ensure Message Content Intent is enabled in the Discord Developer Portal to allow command recognition.
 
 ---
