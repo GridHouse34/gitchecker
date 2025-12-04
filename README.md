@@ -92,7 +92,7 @@ python bot.py
 
 - Check for repository updates at the configured interval.
 - Send notifications to your Discord channel when changes are detected.
-- Shows currently public repositories in a list.
+- Shows currently public repositories in a list
 ---
 
 ### Discord Commands
