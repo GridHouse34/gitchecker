@@ -1,5 +1,8 @@
-def setup_commands(bot, force_check_func, check_loop, state):
+from discord.ext import commands
+import os
+import aiohttp
 
+def setup_commands(bot, force_check_func, check_loop, state):
     @bot.command(name="force")
     async def force_command(ctx):
         await ctx.send("Forcing GitHub check...")
@@ -7,6 +10,10 @@ def setup_commands(bot, force_check_func, check_loop, state):
 
     @bot.command(name="time")
     async def time_command(ctx, minutes: int):
+        if minutes < 1:
+            await ctx.send("❌ Minimum interval is 1 minute.")
+            return
+
         seconds = minutes * 60
         state.interval = seconds
 
@@ -24,7 +31,9 @@ def setup_commands(bot, force_check_func, check_loop, state):
 
     @bot.command(name="repos")
     async def repos_command(ctx):
-        import aiohttp
+        """
+        Display the user's current public GitHub repository names.
+        """
         GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
@@ -51,3 +60,4 @@ def setup_commands(bot, force_check_func, check_loop, state):
             await ctx.send("Too many repositories to display.")
         else:
             await ctx.send(message)
+
