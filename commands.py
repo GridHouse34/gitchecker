@@ -3,6 +3,7 @@ import os
 import aiohttp
 
 def setup_commands(bot, force_check_func, check_loop, state):
+
     @bot.command(name="force")
     async def force_command(ctx):
         await ctx.send("Forcing GitHub check...")
@@ -19,7 +20,7 @@ def setup_commands(bot, force_check_func, check_loop, state):
 
         try:
             check_loop.change_interval(seconds=seconds)
-            await ctx.send(f"⏱ Check interval updated to **{minutes} minutes** ({seconds} seconds).")
+            await ctx.send(f"⏱ Check interval updated to **{minutes} minutes**.")
         except Exception as e:
             await ctx.send(f"Error setting interval: {e}")
 
@@ -31,9 +32,6 @@ def setup_commands(bot, force_check_func, check_loop, state):
 
     @bot.command(name="repos")
     async def repos_command(ctx):
-        """
-        Display the user's current public GitHub repository names.
-        """
         GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
@@ -54,10 +52,9 @@ def setup_commands(bot, force_check_func, check_loop, state):
             return
 
         repo_names = [repo["name"] for repo in data]
-        message = "**Public repositories:**\n" + "\n".join(repo_names)
+        msg = "**Public repositories:**\n" + "\n".join(repo_names)
 
-        if len(message) > 2000:
+        if len(msg) > 2000:
             await ctx.send("Too many repositories to display.")
         else:
-            await ctx.send(message)
-
+            await ctx.send(msg)
