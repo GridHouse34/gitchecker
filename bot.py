@@ -6,7 +6,6 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from commands import setup_commands
 import datetime
-import json
 
 # ---------------------------
 # Load ENV
@@ -18,139 +17,145 @@ GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 DEFAULT_CHANNEL_ID = int(os.getenv("DEFAULT_CHANNEL_ID", 0))
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", 3600))
-LAST_CHECK_FILE = "last_check_times.json"  # File to persist last commit times
 
 # ---------------------------
 # Bot + Intents
 # ---------------------------
 intents = discord.Intents.default()
 intents.message_content = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ---------------------------
-# Bot State
+# State Object
 # ---------------------------
 class BotState:
     def __init__(self):
         self.last_repos = None
         self.channel = None
         self.interval = CHECK_INTERVAL
-        self.last_check_times = {}  # per repo: ISO timestamp of last commit processed
 
 state = BotState()
 
 # ---------------------------
-# Load / Save persistent last-check times
+# GitHub: get commit files
 # ---------------------------
-def load_last_check_times():
-    if os.path.exists(LAST_CHECK_FILE):
-        try:
-            with open(LAST_CHECK_FILE, "r") as f:
-                state.last_check_times = json.load(f)
-        except:
-            state.last_check_times = {}
-
-def save_last_check_times():
-    try:
-        with open(LAST_CHECK_FILE, "w") as f:
-            json.dump(state.last_check_times, f)
-    except Exception as e:
-        print("Error saving last_check_times:", e)
-
-load_last_check_times()
-
-# ---------------------------
-# First-run initialization
-# ---------------------------
-async def initialize_last_check_times():
-    # Only do this if last_check_times is empty (first run / JSON missing)
-    if state.last_check_times:
-        return  # Already loaded from JSON, nothing to do
-
-    repos = await fetch_repos()
-    for repo in repos:
-        repo_name = repo["name"]
-        # Use repo's last updated time as the starting point
-        state.last_check_times[repo_name] = repo.get("updated_at") or datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-    save_last_check_times()
-
-# ---------------------------
-# Helper: Get commits since last check
-# ---------------------------
-async def get_commits_since(repo_name, since_iso):
+async def get_latest_commit_files(repo_name):
     url = f"https://api.github.com/repos/{GITHUB_USERNAME}/{repo_name}/commits"
     headers = {}
     if GITHUB_TOKEN:
         headers["Authorization"] = f"token {GITHUB_TOKEN}"
 
-    params = {}
-    if since_iso:
-        params["since"] = since_iso
-
     async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers, params=params) as resp:
+        async with session.get(url, headers=headers) as resp:
             if resp.status != 200:
-                return []
+                return ("General Update", None)
+
             commits = await resp.json()
-            return commits
+            if not commits:
+                return ("General Update", None)
+
+            latest_sha = commits[0]["sha"]
+
+        commit_url = f"https://api.github.com/repos/{GITHUB_USERNAME}/{repo_name}/commits/{latest_sha}"
+
+        async with session.get(commit_url, headers=headers) as resp2:
+            if resp2.status != 200:
+                return ("General Update", None)
+
+            commit_data = await resp2.json()
+
+    files = commit_data.get("files", [])
+    if not files:
+        return ("General Update", None)
+
+    file_names = [f["filename"] for f in files]
+    return ("File Update", file_names)
+
+# ---------------------------
+# Detect changes
+# ---------------------------
+async def detect_changes(old, new):
+    if old is None:
+        return []
+
+    changes = []
+
+    old_repos = {r["name"]: r for r in old}
+    new_repos = {r["name"]: r for r in new}
+
+    # New repos
+    for repo in new_repos:
+        if repo not in old_repos:
+            changes.append({
+                "type": "Repository Created",
+                "repo": repo,
+                "update_kind": "Repository Created",
+                "file": None,
+                "timestamp": new_repos[repo]["created_at"]
+            })
+
+    # Updated repos
+    for repo in new_repos:
+        if repo in old_repos:
+            if new_repos[repo]["updated_at"] != old_repos[repo]["updated_at"]:
+
+                update_kind, files = await get_latest_commit_files(repo)
+
+                file_changed = None
+                if files:
+                    file_changed = ", ".join(files)
+
+                changes.append({
+                    "type": "Repository Updated",
+                    "repo": repo,
+                    "update_kind": update_kind,
+                    "file": file_changed,
+                    "timestamp": new_repos[repo]["updated_at"]
+                })
+
+    return changes
 
 # ---------------------------
 # Embed Builder
 # ---------------------------
-def build_change_embed(change_type, repo_name, update_kind, file_changed=None, timestamp=None, new_description=None):
-    color_map = {
-        "File Update": 0xFFD700,
-        "Description Update": 0x3498DB,
-        "Repository Created": 0x2ECC71,
-        "General Update": 0x95A5A6
-    }
-    color = color_map.get(update_kind, 0x95A5A6)
-
-    ts = timestamp
-    if isinstance(ts, str):
+def build_change_embed(change_type, repo_name, update_kind, file_changed=None, timestamp=None):
+    if timestamp:
         try:
-            ts = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            ts = datetime.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         except:
-            ts = datetime.datetime.now(datetime.timezone.utc)
-    elif ts is None:
-        ts = datetime.datetime.now(datetime.timezone.utc)
-
-    ts_local = ts.astimezone()
+            ts = datetime.datetime.utcnow()
+    else:
+        ts = datetime.datetime.utcnow()
 
     embed = discord.Embed(
         title=change_type,
-        color=color,
-        timestamp=ts_local
+        color=discord.Color.blue(),
+        timestamp=ts
     )
 
-    if update_kind == "Description Update":
+    # General Update (no file changed)
+    if update_kind == "General Update" or file_changed is None:
         embed.add_field(
-            name=f"Repository: {repo_name} | Description Updated",
-            value=f"Description: {new_description}",
+            name="Repository",
+            value=f"**{repo_name}** | **General Update**",
             inline=False
         )
         embed.add_field(
             name="Time",
-            value=ts_local.strftime("%I:%M %p"),
+            value=ts.strftime("%I:%M %p"),
             inline=False
         )
-    elif update_kind == "File Update":
-        embed.add_field(
-            name=f"Repository: {repo_name} | File Update",
-            value=f"{file_changed} | {ts_local.strftime('%I:%M %p')}",
-            inline=False
-        )
-    elif update_kind == "Repository Created":
-        embed.add_field(
-            name=f"Repository Created: {repo_name}",
-            value=f"Time: {ts_local.strftime('%I:%M %p')}",
-            inline=False
-        )
+
     else:
         embed.add_field(
-            name=f"Repository: {repo_name} | General Update",
-            value=f"Time: {ts_local.strftime('%I:%M %p')}",
+            name="Repository",
+            value=f"**{repo_name}** | **File Update**",
+            inline=False
+        )
+        embed.add_field(
+            name="File Changed",
+            value=f"**{file_changed}** | {ts.strftime('%I:%M %p')}",
             inline=False
         )
 
@@ -174,81 +179,7 @@ async def fetch_repos():
                 return []
 
 # ---------------------------
-# Detect changes
-# ---------------------------
-async def detect_changes(old, new):
-    if old is None:
-        return []
-
-    changes = []
-    old_repos = {r["name"]: r for r in old}
-    new_repos = {r["name"]: r for r in new}
-
-    for repo in new_repos:
-        # New repository
-        if repo not in old_repos:
-            changes.append({
-                "type": "Repository Created",
-                "repo": repo,
-                "update_kind": "Repository Created",
-                "file": None,
-                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-            })
-            continue
-
-        # Detect description change
-        old_desc = old_repos[repo].get("description")
-        new_desc = new_repos[repo].get("description")
-        if old_desc != new_desc:
-            changes.append({
-                "type": "Repository Updated",
-                "repo": repo,
-                "update_kind": "Description Update",
-                "file": None,
-                "new_description": new_desc or "No description",
-                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-            })
-
-        # Detect file updates via commits
-        last_check = state.last_check_times.get(repo)
-        commits = await get_commits_since(repo, last_check)
-
-        latest_commit_time = last_check
-
-        for commit in sorted(commits, key=lambda x: x["commit"]["author"]["date"]):
-            commit_time = commit["commit"]["author"]["date"]
-            files = commit.get("files", [])
-
-            # Fetch files if not included
-            if not files:
-                async with aiohttp.ClientSession() as session:
-                    commit_url = commit["url"]
-                    async with session.get(commit_url, headers={"Authorization": f"token {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            files = data.get("files", [])
-
-            if files:
-                file_names = ", ".join(f["filename"] for f in files)
-                changes.append({
-                    "type": "Repository Updated",
-                    "repo": repo,
-                    "update_kind": "File Update",
-                    "file": file_names,
-                    "timestamp": commit_time
-                })
-
-            if not latest_commit_time or commit_time > latest_commit_time:
-                latest_commit_time = commit_time
-
-        if latest_commit_time:
-            state.last_check_times[repo] = latest_commit_time
-
-    save_last_check_times()
-    return changes
-
-# ---------------------------
-# Background loop
+# Background Loop
 # ---------------------------
 @tasks.loop(seconds=CHECK_INTERVAL)
 async def check_github():
@@ -267,9 +198,8 @@ async def check_github():
                     c["type"],
                     c["repo"],
                     c["update_kind"],
-                    c.get("file"),
-                    c["timestamp"],
-                    c.get("new_description")
+                    c["file"],
+                    c["timestamp"]
                 )
                 await state.channel.send(embed=embed)
 
@@ -281,11 +211,9 @@ async def before_loop():
     await bot.wait_until_ready()
     if DEFAULT_CHANNEL_ID:
         state.channel = bot.get_channel(DEFAULT_CHANNEL_ID)
-    # Initialize last_check_times safely
-    await initialize_last_check_times()
 
 # ---------------------------
-# Force check
+# Force Check
 # ---------------------------
 async def force_check(channel):
     try:
@@ -298,9 +226,8 @@ async def force_check(channel):
                     c["type"],
                     c["repo"],
                     c["update_kind"],
-                    c.get("file"),
-                    c["timestamp"],
-                    c.get("new_description")
+                    c["file"],
+                    c["timestamp"]
                 )
                 await channel.send(embed=embed)
         else:
@@ -312,7 +239,7 @@ async def force_check(channel):
         await channel.send(f"Error during force check: {e}")
 
 # ---------------------------
-# Setup commands
+# Setup Commands
 # ---------------------------
 setup_commands(bot, force_check, check_github, state)
 
