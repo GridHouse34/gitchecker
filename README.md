@@ -11,7 +11,7 @@ tags: [Python, Discord, GitHub, Bot, Automation]
 [![Status: Public](https://img.shields.io/badge/Status-Ready_for_Deployment-green)](https://github.com/GridHouse34/gitchecker)
 
 
-**GitChecker** is a Python bot that monitors your GitHub profile for changes (new repositories or updates) and sends notifications to a Discord channel. It’s simple, self-hostable, and easy to configure.
+**GitChecker** is a Python bot that monitors your GitHub profile for changes (new repositories or updates) and sends notifications to a Discord server and specified channel. It’s simple, self-hostable, and "easy" to configure.
 
 ---
 
