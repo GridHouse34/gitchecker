@@ -6,6 +6,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from commands import setup_commands
 import datetime
+import json
 
 # ---------------------------
 # Load ENV
@@ -17,6 +18,7 @@ GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 DEFAULT_CHANNEL_ID = int(os.getenv("DEFAULT_CHANNEL_ID", 0))
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", 3600))
+LAST_CHECK_FILE = "last_check_times.json"  # File to persist last commit times
 
 # ---------------------------
 # Bot + Intents
@@ -33,9 +35,45 @@ class BotState:
         self.last_repos = None
         self.channel = None
         self.interval = CHECK_INTERVAL
-        self.last_check_times = {}  # per repo timestamp
+        self.last_check_times = {}  # per repo: ISO timestamp of last commit processed
 
 state = BotState()
+
+# ---------------------------
+# Load / Save persistent last-check times
+# ---------------------------
+def load_last_check_times():
+    if os.path.exists(LAST_CHECK_FILE):
+        try:
+            with open(LAST_CHECK_FILE, "r") as f:
+                state.last_check_times = json.load(f)
+        except:
+            state.last_check_times = {}
+
+def save_last_check_times():
+    try:
+        with open(LAST_CHECK_FILE, "w") as f:
+            json.dump(state.last_check_times, f)
+    except Exception as e:
+        print("Error saving last_check_times:", e)
+
+load_last_check_times()
+
+# ---------------------------
+# First-run initialization
+# ---------------------------
+async def initialize_last_check_times():
+    # Only do this if last_check_times is empty (first run / JSON missing)
+    if state.last_check_times:
+        return  # Already loaded from JSON, nothing to do
+
+    repos = await fetch_repos()
+    for repo in repos:
+        repo_name = repo["name"]
+        # Use repo's last updated time as the starting point
+        state.last_check_times[repo_name] = repo.get("updated_at") or datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    save_last_check_times()
 
 # ---------------------------
 # Helper: Get commits since last check
@@ -62,10 +100,10 @@ async def get_commits_since(repo_name, since_iso):
 # ---------------------------
 def build_change_embed(change_type, repo_name, update_kind, file_changed=None, timestamp=None, new_description=None):
     color_map = {
-        "File Update": 0xFFD700,           # Yellow
-        "Description Update": 0x3498DB,    # Blue
-        "Repository Created": 0x2ECC71,    # Green
-        "General Update": 0x95A5A6         # Grey
+        "File Update": 0xFFD700,
+        "Description Update": 0x3498DB,
+        "Repository Created": 0x2ECC71,
+        "General Update": 0x95A5A6
     }
     color = color_map.get(update_kind, 0x95A5A6)
 
@@ -109,7 +147,7 @@ def build_change_embed(change_type, repo_name, update_kind, file_changed=None, t
             value=f"Time: {ts_local.strftime('%I:%M %p')}",
             inline=False
         )
-    else:  # General Update
+    else:
         embed.add_field(
             name=f"Repository: {repo_name} | General Update",
             value=f"Time: {ts_local.strftime('%I:%M %p')}",
@@ -172,14 +210,17 @@ async def detect_changes(old, new):
             })
 
         # Detect file updates via commits
-        # Only fetch commits since last check
         last_check = state.last_check_times.get(repo)
         commits = await get_commits_since(repo, last_check)
 
-        for commit in reversed(commits):  # oldest first
+        latest_commit_time = last_check
+
+        for commit in sorted(commits, key=lambda x: x["commit"]["author"]["date"]):
+            commit_time = commit["commit"]["author"]["date"]
             files = commit.get("files", [])
+
+            # Fetch files if not included
             if not files:
-                # If the API didn't include files, fetch commit details
                 async with aiohttp.ClientSession() as session:
                     commit_url = commit["url"]
                     async with session.get(commit_url, headers={"Authorization": f"token {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}) as resp:
@@ -187,19 +228,23 @@ async def detect_changes(old, new):
                             data = await resp.json()
                             files = data.get("files", [])
 
-            file_names = ", ".join(f["filename"] for f in files) if files else None
-            if file_names:
+            if files:
+                file_names = ", ".join(f["filename"] for f in files)
                 changes.append({
                     "type": "Repository Updated",
                     "repo": repo,
                     "update_kind": "File Update",
                     "file": file_names,
-                    "timestamp": commit["commit"]["author"]["date"]
+                    "timestamp": commit_time
                 })
 
-        # Update last check timestamp for this repo
-        state.last_check_times[repo] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            if not latest_commit_time or commit_time > latest_commit_time:
+                latest_commit_time = commit_time
 
+        if latest_commit_time:
+            state.last_check_times[repo] = latest_commit_time
+
+    save_last_check_times()
     return changes
 
 # ---------------------------
@@ -236,6 +281,8 @@ async def before_loop():
     await bot.wait_until_ready()
     if DEFAULT_CHANNEL_ID:
         state.channel = bot.get_channel(DEFAULT_CHANNEL_ID)
+    # Initialize last_check_times safely
+    await initialize_last_check_times()
 
 # ---------------------------
 # Force check
