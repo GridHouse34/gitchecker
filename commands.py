@@ -1,7 +1,3 @@
-from discord.ext import commands
-import os
-import aiohttp
-
 def setup_commands(bot, force_check_func, check_loop, state):
 
     @bot.command(name="force")
@@ -16,7 +12,7 @@ def setup_commands(bot, force_check_func, check_loop, state):
 
         try:
             check_loop.change_interval(seconds=seconds)
-            await ctx.send(f"⏱ Check interval updated to **{minutes} minutes**.")
+            await ctx.send(f"⏱ Check interval updated to **{minutes} minutes** ({seconds} seconds).")
         except Exception as e:
             await ctx.send(f"Error setting interval: {e}")
 
@@ -26,14 +22,9 @@ def setup_commands(bot, force_check_func, check_loop, state):
         os.environ["DEFAULT_CHANNEL_ID"] = str(ctx.channel.id)
         await ctx.send(f"🔔 Notifications will now be sent in <#{ctx.channel.id}>.")
 
-    # ---------------------------
-    #   New command: !repos
-    # ---------------------------
     @bot.command(name="repos")
     async def repos_command(ctx):
-        """
-        Displays the user's current public GitHub repository names.
-        """
+        import aiohttp
         GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
@@ -53,11 +44,9 @@ def setup_commands(bot, force_check_func, check_loop, state):
             await ctx.send("No public repositories found.")
             return
 
-        # Only display repository names
         repo_names = [repo["name"] for repo in data]
         message = "**Public repositories:**\n" + "\n".join(repo_names)
 
-        # Ensure under Discord's 2000 character limit
         if len(message) > 2000:
             await ctx.send("Too many repositories to display.")
         else:
