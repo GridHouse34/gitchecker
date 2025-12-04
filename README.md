@@ -91,8 +91,8 @@ python bot.py
 ## Once running, the bot will:
 
 - Check for repository updates at the configured interval.
-- Send notifications to your Discord channel when changes are detected.
-- Shows currently public repositories in a list
+- Send notifications to your Discord channel when changes are detected (be it new repos or file updates).
+- Shows currently public repositories in a list.
 ---
 
 ### Discord Commands
