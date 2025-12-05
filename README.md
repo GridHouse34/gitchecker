@@ -116,9 +116,19 @@ Keep the terminal open while the bot is running; closing it will disconnect the 
 Use !force to test if everything is working correctly.
 
 ---
-
 ### LICENSE
 This project uses the MIT License. Read more about it [here](https://github.com/GridHouse34/gitchecker/blob/main/LICENSE)
 
 ### Contributions/issues
 Got an issue or wish to contribute? Submit pull requests, open issues, or contact the maintainer on Discord (GridHouse)!
+
+---
+
+## OPTIONAL — for everyone except VOCO students
+
+### Important note for VOCO students:
+This project was originally a creative assignment for my programming class, with a deadline of **December 10th, 2025.**
+
+Please be aware that the code **will not work on Xen Orchestra servers (or any school-managed VM)** unless you have the ability to self-host on your own machine or server. This is most likely due to HTTPS traffic being intercepted or filtered, which prevents the program from communicating with the **GitHub API and Discord API**.
+
+If you want to run this project properly, you must host it on a system where HTTPS traffic is not altered or blocked.
