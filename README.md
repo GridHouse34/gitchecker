@@ -99,7 +99,7 @@ python bot.py
 
 !force → Force a GitHub check immediately.
 
-!time <minutes> → Change the check interval.
+!time <minutes> → Change the check interval. (Doesn't work at the moment.)
 
 !channel → Set the current channel as the notification channel.
 
