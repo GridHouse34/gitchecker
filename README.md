@@ -130,4 +130,4 @@ Got an issue or wish to contribute? Submit pull requests, open issues, or contac
 This project was originally a creative assignment for my programming class, with a deadline of **December 10th, 2025.**
 
 Due to XOA being replaced by Proxmox VE, I'm not certain if the code can run on any VMs created there (as when I deployed the bot on a VM, it ran into one singular issue constantly that was related to hosting from a VM).
-In case hosting is unavailable via Prox, please try hosting from the computer you are on. Luckily most programs can be downloaded without needing to encounter UAC (User Account Control).
+In case hosting is unavailable via Prox, please try hosting from the computer you are on. Luckily most programs can be downloaded without encountering UAC (User Account Control).
